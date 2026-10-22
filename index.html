@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Space Shooter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050510;
+            touch-action: none; /* Prevent scroll on mobile */
+            font-family: 'Press Start 2P', cursive;
+        }
+        canvas {
+            display: block;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let clicks pass through to canvas/buttons */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        .btn {
+            pointer-events: auto;
+        }
+        #mobile-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-sizing: border-box;
+            z-index: 20;
+        }
+        .control-btn {
+            background: rgba(0, 255, 255, 0.2);
+            border: 2px solid cyan;
+            color: cyan;
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-size: 24px;
+            user-select: none;
+            touch-action: manipulation;
+        }
+        .control-btn:active {
+            background: rgba(0, 255, 255, 0.5);
+        }
+        #score-display {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: cyan;
+            font-size: 16px;
+            text-shadow: 0 0 5px cyan;
+        }
+        
+        /* Hide mobile controls on larger screens */
+        @media (min-width: 768px) {
+            #mobile-controls {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UI Overlay -->
+    <div id="score-display">SCORE: <span id="score">0</span></div>
+    
+    <div id="ui-layer">
+        <!-- Start Screen -->
+        <div id="start-screen" class="text-center transition-opacity duration-300">
+            <h1 class="text-4xl text-cyan-400 mb-6 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]">NEON SHOOTER</h1>
+            <p class="text-gray-400 text-xs mb-8 leading-relaxed">
+                Desktop: Left/Right Arrows & Spacebar<br>
+                Mobile: Use On-Screen Buttons
+            </p>
+            <button id="start-btn" class="btn bg-cyan-500 hover:bg-cyan-400 text-black px-6 py-3 rounded text-sm uppercase shadow-[0_0_15px_cyan] transition-all">Start Game</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="text-center hidden transition-opacity duration-300">
+            <h1 class="text-5xl text-red-500 mb-4 drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]">GAME OVER</h1>
+            <p class="text-white text-lg mb-8">FINAL SCORE: <span id="final-score" class="text-cyan-400">0</span></p>
+            <button id="restart-btn" class="btn bg-red-500 hover:bg-red-400 text-white px-6 py-3 rounded text-sm uppercase shadow-[0_0_15px_red] transition-all">Play Again</button>
+        </div>
+    </div>
+
+    <!-- Mobile Controls -->
+    <div id="mobile-controls" class="hidden">
+        <div class="flex gap-4">
+            <button id="btn-left" class="control-btn btn">◀</button>
+            <button id="btn-right" class="control-btn btn">▶</button>
+        </div>
+        <button id="btn-shoot" class="control-btn btn bg-red-500/20 border-red-500 text-red-500">FIRE</button>
+    </div>
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // UI Elements
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const scoreElement = document.getElementById('score');
+        const finalScoreElement = document.getElementById('final-score');
+        const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const mobileControls = document.getElementById('mobile-controls');
+
+        // Game State
+        let animationId;
+        let score = 0;
+        let gameActive = false;
+        let frames = 0;
+
+        // Resize Canvas
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Check if mobile
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+        if (isMobile) {
+            mobileControls.classList.remove('hidden');
+        }
+
+        // --- GAME ENTITIES ---
+
+        class Player {
+            constructor() {
+                this.width = 40;
+                this.height = 40;
+                this.x = canvas.width / 2 - this.width / 2;
+                this.y = canvas.height - this.height - (isMobile ? 120 : 40); // Lift up if mobile controls are present
+                this.speed = 7;
+                this.dx = 0;
+                this.color = '#00ffff';
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x + this.width/2, this.y + this.height/2);
+                
+                // Draw spaceship (triangle)
+                ctx.beginPath();
+                ctx.moveTo(0, -this.height/2);
+                ctx.lineTo(this.width/2, this.height/2);
+                ctx.lineTo(-this.width/2, this.height/2);
+                ctx.closePath();
+                
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.fill();
+                ctx.restore();
+            }
+
+            update() {
+                this.x += this.dx;
+                // Boundary check
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > canvas.width) this.x = canvas.width - this.width;
+                
+                // Keep y position updated in case of resize
+                this.y = canvas.height - this.height - (isMobile ? 120 : 40);
+                this.draw();
+            }
+        }
+
+        class Bullet {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 4;
+                this.height = 15;
+                this.speed = 10;
+                this.color = '#ffff00';
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.shadowBlur = 0; // reset
+            }
+
+            update() {
+                this.y -= this.speed;
+                this.draw();
+            }
+        }
+
+        class Enemy {
+            constructor() {
+                this.width = Math.random() * 20 + 20; // 20 to 40
+                this.height = this.width;
+                this.x = Math.random() * (canvas.width - this.width);
+                this.y = -this.height;
+                this.speed = Math.random() * 2 + 1.5 + (score * 0.05); // Speed increases with score
+                this.color = '#ff00ff';
+                this.rotation = 0;
+                this.rotSpeed = (Math.random() - 0.5) * 0.1;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x + this.width/2, this.y + this.height/2);
+                ctx.rotate(this.rotation);
+                
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.strokeRect(-this.width/2, -this.height/2, this.width, this.height);
+                
+                ctx.restore();
+            }
+
+            update() {
+                this.y += this.speed;
+                this.rotation += this.rotSpeed;
+                this.draw();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.radius = Math.random() * 3 + 1;
+                this.color = color;
+                this.velocity = {
+                    x: (Math.random() - 0.5) * 8,
+                    y: (Math.random() - 0.5) * 8
+                };
+                this.alpha = 1;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.restore();
+            }
+
+            update() {
+                this.x += this.velocity.x;
+                this.y += this.velocity.y;
+                this.alpha -= 0.02; // Fade out
+                this.draw();
+            }
+        }
+
+        // --- GAME VARIABLES ---
+        let player;
+        let bullets = [];
+        let enemies = [];
+        let particles = [];
+
+        function initGame() {
+            player = new Player();
+            bullets = [];
+            enemies = [];
+            particles = [];
+            score = 0;
+            frames = 0;
+            scoreElement.innerText = score;
+            gameActive = true;
+            
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            
+            animate();
+        }
+
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 15; i++) {
+                particles.push(new Particle(x, y, color));
+            }
+        }
+
+        function gameOver() {
+            gameActive = false;
+            cancelAnimationFrame(animationId);
+            finalScoreElement.innerText = score;
+            gameOverScreen.classList.remove('hidden');
+            createExplosion(player.x + player.width/2, player.y + player.height/2, player.color);
+            
+            // Draw one last frame to show player explosion
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.8)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => p.draw());
+        }
+
+        function spawnEnemies() {
+            // Spawn rate gets slightly faster as score increases, capped at every 30 frames
+            let spawnRate = Math.max(30, 100 - score * 2);
+            if (frames % Math.floor(spawnRate) === 0) {
+                enemies.push(new Enemy());
+            }
+        }
+
+        function shoot() {
+            if (!gameActive) return;
+            // Prevent spam by checking last bullet position (optional, but keeps it simple here)
+            bullets.push(new Bullet(player.x + player.width/2 - 2, player.y));
+        }
+
+        // --- MAIN LOOP ---
+        function animate() {
+            if (!gameActive) return;
+            animationId = requestAnimationFrame(animate);
+            frames++;
+
+            // Clear canvas with trail effect
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            player.update();
+            spawnEnemies();
+
+            // Update Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    p.update();
+                }
+            }
+
+            // Update Bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.update();
+                // Remove if off screen
+                if (b.y < 0) {
+                    bullets.splice(i, 1);
+                }
+            }
+
+            // Update Enemies & Collisions
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.update();
+
+                // Check collision with player
+                if (
+                    player.x < e.x + e.width &&
+                    player.x + player.width > e.x &&
+                    player.y < e.y + e.height &&
+                    player.y + player.height > e.y
+                ) {
+                    gameOver();
+                    return; // Stop processing further in this frame
+                }
+
+                // Check collision with bullets
+                let enemyDestroyed = false;
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const b = bullets[j];
+                    if (
+                        b.x < e.x + e.width &&
+                        b.x + b.width > e.x &&
+                        b.y < e.y + e.height &&
+                        b.y + b.height > e.y
+                    ) {
+                        // Hit!
+                        createExplosion(e.x + e.width/2, e.y + e.height/2, e.color);
+                        bullets.splice(j, 1);
+                        enemies.splice(i, 1);
+                        enemyDestroyed = true;
+                        score += 10;
+                        scoreElement.innerText = score;
+                        break; // Move to next enemy
+                    }
+                }
+
+                // Remove enemy if off screen bottom (no penalty)
+                if (!enemyDestroyed && e.y > canvas.height) {
+                    enemies.splice(i, 1);
+                }
+            }
+        }
+
+        // --- CONTROLS ---
+
+        // Keyboard Controls
+        const keys = { ArrowLeft: false, ArrowRight: false, a: false, d: false };
+
+        window.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.key) || e.key === 'a' || e.key === 'd') {
+                keys[e.key] = true;
+            }
+            if (e.code === 'Space') {
+                e.preventDefault(); // Prevent scrolling
+                shoot();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.key) || e.key === 'a' || e.key === 'd') {
+                keys[e.key] = false;
+            }
+        });
+
+        // Apply keyboard movement in an interval to ensure smooth movement decoupled from frame rate issues
+        setInterval(() => {
+            if (!gameActive) return;
+            if (keys.ArrowLeft || keys.a) player.dx = -player.speed;
+            else if (keys.ArrowRight || keys.d) player.dx = player.speed;
+            else player.dx = 0;
+        }, 1000/60);
+
+        // Mobile Controls
+        const btnLeft = document.getElementById('btn-left');
+        const btnRight = document.getElementById('btn-right');
+        const btnShoot = document.getElementById('btn-shoot');
+
+        // Touch start
+        btnLeft.addEventListener('touchstart', (e) => { e.preventDefault(); player.dx = -player.speed; });
+        btnRight.addEventListener('touchstart', (e) => { e.preventDefault(); player.dx = player.speed; });
+        btnShoot.addEventListener('touchstart', (e) => { e.preventDefault(); shoot(); });
+        
+        // Touch end
+        btnLeft.addEventListener('touchend', (e) => { e.preventDefault(); player.dx = 0; });
+        btnRight.addEventListener('touchend', (e) => { e.preventDefault(); player.dx = 0; });
+
+        // Mouse fallbacks for testing on desktop with mobile view
+        btnLeft.addEventListener('mousedown', () => { player.dx = -player.speed; });
+        btnRight.addEventListener('mousedown', () => { player.dx = player.speed; });
+        btnShoot.addEventListener('mousedown', shoot);
+        
+        btnLeft.addEventListener('mouseup', () => { player.dx = 0; });
+        btnLeft.addEventListener('mouseleave', () => { player.dx = 0; });
+        btnRight.addEventListener('mouseup', () => { player.dx = 0; });
+        btnRight.addEventListener('mouseleave', () => { player.dx = 0; });
+
+        // Start / Restart Actions
+        startBtn.addEventListener('click', initGame);
+        restartBtn.addEventListener('click', initGame);
+
+    </script>
+</body>
+</html>

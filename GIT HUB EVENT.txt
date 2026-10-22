@@ -1,0 +1,26 @@
+imp commands in git
+
+git add 
+
+git commit
+
+git push
+
+git fetch
+
+git pull
+
+imp terminology
+
+resposity
+commit
+branch
+merge
+clone
+remote
+pull request
+merge conflict
+
+files to know
+README.md-instruction
+.gitignore
